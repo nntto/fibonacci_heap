@@ -1,14 +1,14 @@
 use std::cell::{Ref, RefCell};
 use std::rc::{Rc, Weak};
 
-pub struct Heap {
+pub struct Heap<T> {
     n: i32,
     trees: i32,
     marks: i32,
-    min: Option<Rc<Node>>,
+    min: Option<Rc<Node<T>>>,
 }
 
-impl Heap {
+impl<T> Heap<T> {
     pub fn new() -> Self {
         Heap {
             n: 0,
@@ -18,7 +18,7 @@ impl Heap {
         }
     }
 
-    pub fn get_min(&self) -> Option<Rc<Node>> {
+    pub fn get_min(&self) -> Option<Rc<Node<T>>> {
         if let Some(min) = &self.min {
             Some(Rc::clone(min))
         } else {
@@ -26,8 +26,8 @@ impl Heap {
         }
     }
 
-    pub fn insert(&mut self, key: i32) {
-        let node = Node::new(key);
+    pub fn insert(&mut self, key: i32, value: T) {
+        let node = Node::new(key, value);
         self.min = match &self.min {
             Some(min) => {
                 min.concatenate(Rc::clone(&node));
@@ -70,21 +70,23 @@ impl Heap {
     }
 }
 
-pub struct Node {
+pub struct Node<T> {
     key: RefCell<i32>,
+    value: T,
     // 循環参照を避けるために一方向はRcポインタ、もう一方はWeakポインタを使用
-    parent: RefCell<Option<Weak<Node>>>,
-    child: RefCell<Option<Rc<Node>>>,
-    right: RefCell<Option<Rc<Node>>>,
-    left: RefCell<Option<Weak<Node>>>,
+    parent: RefCell<Option<Weak<Node<T>>>>,
+    child: RefCell<Option<Rc<Node<T>>>>,
+    right: RefCell<Option<Rc<Node<T>>>>,
+    left: RefCell<Option<Weak<Node<T>>>>,
     degree: RefCell<i32>,
     is_marked: RefCell<bool>,
 }
 
-impl Node {
-    pub fn new(key: i32) -> Rc<Self> {
+impl<T> Node<T> {
+    pub fn new(key: i32, value: T) -> Rc<Self> {
         let node = Rc::new(Node {
             key: RefCell::new(key),
+            value: value,
             parent: RefCell::new(None),
             child: RefCell::new(None),
             right: RefCell::new(None),
@@ -99,7 +101,7 @@ impl Node {
         node
     }
 
-    pub fn print(&self, Heap: &Heap) {
+    pub fn print(&self, Heap: &Heap<T>) {
         print!("{} ", *self.key.borrow(),);
         let right = self.get_right().unwrap();
         let start = if let Some(parent) = self.get_parent() {
@@ -208,14 +210,14 @@ impl Node {
     }
 }
 
-pub struct NodeIterator {
-    first: Rc<Node>,
-    current: Option<Rc<Node>>,
+pub struct NodeIterator<T> {
+    first: Rc<Node<T>>,
+    current: Option<Rc<Node<T>>>,
     first_seen: bool,
 }
 
-impl NodeIterator {
-    fn new(node: Rc<Node>) -> Self {
+impl<T> NodeIterator<T> {
+    fn new(node: Rc<Node<T>>) -> Self {
         NodeIterator {
             first: Rc::clone(&node),
             current: Some(Rc::clone(&node)),
@@ -224,8 +226,8 @@ impl NodeIterator {
     }
 }
 
-impl Iterator for NodeIterator {
-    type Item = Rc<Node>;
+impl<T> Iterator for NodeIterator<T> {
+    type Item = Rc<Node<T>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = Node::from_borrowed_option_rc(&self.current)?;
