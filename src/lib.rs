@@ -2,10 +2,17 @@ use std::cell::{Ref, RefCell};
 use std::rc::{Rc, Weak};
 
 pub struct Heap<T> {
-    n: i32,
-    trees: i32,
-    marks: i32,
+    n: isize,
+    trees: isize,
+    marks: isize,
     min: Option<Rc<Node<T>>>,
+}
+
+pub struct InputData<T> {
+    key: isize,
+    value: T,
+    is_marked: bool,
+    children: Vec<InputData<T>>,
 }
 
 impl<T> Heap<T> {
@@ -26,8 +33,12 @@ impl<T> Heap<T> {
         }
     }
 
-    pub fn insert(&mut self, key: i32, value: T) {
+    pub fn insert(&mut self, key: isize, value: T) {
         let node = Node::new(key, value);
+        self.insert_node(Rc::clone(&node));
+    }
+
+    pub fn insert_node(&mut self, node: Rc<Node<T>>) {
         self.min = match &self.min {
             Some(min) => {
                 min.concatenate(Rc::clone(&node));
@@ -41,8 +52,7 @@ impl<T> Heap<T> {
         };
         self.n += 1;
     }
-
-    pub fn minimum(&self) -> i32 {
+    pub fn minimum(&self) -> isize {
         *self.get_min().unwrap().key.borrow()
     }
 
@@ -60,30 +70,111 @@ impl<T> Heap<T> {
         }
     }
 
+    pub fn extract_min(&mut self) -> Option<Rc<Node<T>>> {
+        if let Some(z) = self.get_min() {
+            if let Some(z_child) = z.get_child() {
+                self.get_min().unwrap().concatenate(Rc::clone(&z_child));
+            }
+            let z_right = z.get_right().unwrap();
+            z.remove();
+            if Rc::ptr_eq(&z, &z_right) {
+                self.min = None;
+            } else {
+                self.min = Some(z_right);
+                self.consolidate();
+            }
+            self.n -= 1;
+            return Some(z);
+        }
+        None
+    }
+
+    fn D(&self) -> usize {
+        let n = self.n as f64;
+        let log = n.log2();
+        log as usize
+    }
+
+    fn consolidate(&mut self) {
+        let D = self.D();
+        // while letを抜けるbreakがうまく動かないので余分に空間を確保
+        let mut A = vec![None as Option<Rc<Node<T>>>; &D + 2];
+
+        if let Some(min) = self.get_min() {
+            for w in NodeIterator::new(Rc::clone(&min)) {
+                let mut x = w;
+                let mut d = x.get_degree();
+                while let Some(mut y) = A[d].clone() {
+                    if x.get_key() > y.get_key() {
+                        // swap x y
+                        let x_rc = Rc::clone(&x);
+                        let y_rc = Rc::clone(&y);
+                        x = y_rc;
+                        y = x_rc;
+                    }
+                    self.link(Rc::clone(&y), Rc::clone(&x));
+                    A[d] = None;
+                    d += 1;
+
+                    /* 動かないみたい
+                    if d >= D {
+                        println!("d={}>=D={}", &d, &D);
+                        break;
+                    }
+                    */
+                }
+                A[d] = Some(Rc::clone(&x));
+            }
+        }
+        self.min = None;
+        for i in 0..D + 2 {
+            if let Some(a_i) = A[i].clone() {
+                self.insert_node(Rc::clone(&a_i));
+
+                if let Some(min) = self.get_min() {
+                    if a_i.get_key() < min.get_key() {
+                        self.min = Some(a_i);
+                    }
+                } else {
+                    self.min = Some(a_i);
+                }
+            }
+        }
+    }
+
+    fn link(&self, y: Rc<Node<T>>, x: Rc<Node<T>>) {
+        y.remove();
+        x.add_child(Rc::clone(&y));
+        y.unmark();
+    }
     pub fn print(&self) {
-        if let Some(min) = &self.min {
-            min.print(self);
-        } else {
-            println!("none");
+        println!(
+            "(TODO)n={}, marks={}, trees={}",
+            self.n, self.marks, self.trees
+        );
+        if let Some(min) = self.get_min() {
+            for node in NodeIterator::new(min) {
+                node.print(0);
+            }
         }
         println!("");
     }
 }
 
 pub struct Node<T> {
-    key: RefCell<i32>,
+    key: RefCell<isize>,
     value: T,
     // 循環参照を避けるために一方向はRcポインタ、もう一方はWeakポインタを使用
     parent: RefCell<Option<Weak<Node<T>>>>,
     child: RefCell<Option<Rc<Node<T>>>>,
     right: RefCell<Option<Rc<Node<T>>>>,
     left: RefCell<Option<Weak<Node<T>>>>,
-    degree: RefCell<i32>,
+    degree: RefCell<usize>,
     is_marked: RefCell<bool>,
 }
 
 impl<T> Node<T> {
-    pub fn new(key: i32, value: T) -> Rc<Self> {
+    pub fn new(key: isize, value: T) -> Rc<Self> {
         let node = Rc::new(Node {
             key: RefCell::new(key),
             value: value,
@@ -101,28 +192,58 @@ impl<T> Node<T> {
         node
     }
 
-    pub fn print(&self, Heap: &Heap<T>) {
-        print!("{} ", *self.key.borrow(),);
-        let right = self.get_right().unwrap();
-        let start = if let Some(parent) = self.get_parent() {
-            parent.get_child().unwrap()
-        } else {
-            Heap.get_min().unwrap()
-        };
-        if Rc::ptr_eq(&start, &right) == false {
-            right.print(Heap);
-        } else {
-            print!("|");
+    pub fn print(&self, depth: i32) {
+        let mut s = String::new();
+        if (depth >= 10) {
+            panic!("depth={}", depth);
+            return;
         }
-        if let Some(child) = self.get_child() {
-            println!("");
-            child.print(Heap);
+        for _ in 0..depth {
+            s.push_str("  ");
+        }
+        if self.is_marked() {
+            println!("{}{}*({}):", s, self.get_key(), self.get_degree());
         } else {
+            println!("{}{}({}):", s, self.get_key(), self.get_degree());
+        }
+
+        if let Some(child) = self.get_child() {
+            for node in NodeIterator::new(child) {
+                node.print(depth + 1);
+            }
         }
     }
 
-    pub fn get_key(&self) -> i32 {
+    fn is_marked(&self) -> bool {
+        *self.is_marked.borrow()
+    }
+
+    fn mark(&self) {
+        *self.is_marked.borrow_mut() = true;
+    }
+
+    fn unmark(&self) {
+        *self.is_marked.borrow_mut() = false;
+    }
+
+    pub fn get_degree(&self) -> usize {
+        *self.degree.borrow()
+    }
+
+    fn increment_degree(&self) {
+        *self.degree.borrow_mut() += 1;
+    }
+
+    fn decrement_rank(&self) {
+        *self.degree.borrow_mut() -= 1;
+    }
+
+    pub fn get_key(&self) -> isize {
         *self.key.borrow()
+    }
+
+    fn set_key(&self, key: isize) {
+        *self.key.borrow_mut() = key;
     }
 
     fn set_right(&self, node: Rc<Self>) {
@@ -197,8 +318,55 @@ impl<T> Node<T> {
         }
     }
 
+    fn remove(&self) {
+        let left = self.get_left().unwrap();
+        let right = self.get_right().unwrap();
+        let node = self.get_self_rc();
+
+        if !Rc::ptr_eq(&node, &right) {
+            left.set_right(Rc::clone(&right));
+            right.set_left(Rc::downgrade(&left));
+        }
+
+        if let Some(parent) = node.get_parent() {
+            if let Some(child) = parent.get_child() {
+                if Rc::ptr_eq(&node, &child) {
+                    if !Rc::ptr_eq(&node, &right) {
+                        parent.set_child(Rc::clone(&right));
+                    } else {
+                        parent.clear_child();
+                    }
+                }
+            }
+        }
+        node.clear_parent();
+        node.set_right(Rc::clone(&node));
+        node.set_left(Rc::downgrade(&node));
+    }
+
+    fn extract(&self) -> Rc<Self> {
+        let self_rc = self.get_self_rc();
+        self.remove();
+        self.set_right(Rc::clone(&self_rc));
+        self.set_left(Rc::downgrade(&self_rc));
+        self.clear_parent();
+        self_rc
+    }
+
+    fn get_self_rc(&self) -> Rc<Self> {
+        self.get_left().unwrap().get_right().unwrap()
+    }
+
     fn concatenate(&self, node: Rc<Self>) {
-        let self_rc = self.get_left().unwrap().get_right().unwrap();
+        for sibling in NodeIterator::new(Rc::clone(&node)) {
+            if let Some(parent) = self.get_parent() {
+                sibling.set_parent(Rc::downgrade(&parent));
+            } else {
+                sibling.clear_parent();
+            }
+        }
+
+        let self_rc = self.get_self_rc();
         let node_left = node.get_left().unwrap();
         let self_left = self.get_left().unwrap();
 
@@ -207,6 +375,18 @@ impl<T> Node<T> {
 
         node.set_left(Rc::downgrade(&self_left));
         self_left.set_right(Rc::clone(&node));
+    }
+
+    pub fn add_child(&self, node: Rc<Self>) -> Rc<Self> {
+        if let Some(child) = self.get_child() {
+            child.concatenate(Rc::clone(&node));
+        } else {
+            self.set_child(Rc::clone(&node));
+        }
+        let self_rc = self.get_self_rc();
+        node.set_parent(Rc::downgrade(&self_rc));
+        self.increment_degree();
+        Rc::clone(&self_rc)
     }
 }
 
@@ -236,9 +416,11 @@ impl<T> Iterator for NodeIterator<T> {
             return None;
         } else if Rc::ptr_eq(&current, &self.first) {
             self.first_seen = true;
+        } else if Rc::ptr_eq(&current, &current.get_right().unwrap()) && self.first_seen {
+            return None;
         }
 
-        self.current = current.get_right();
+        self.current = current.get_left();
 
         Some(current)
     }
