@@ -3,8 +3,6 @@ use std::rc::{Rc, Weak};
 
 pub struct Heap<T> {
     n: isize,
-    trees: isize,
-    marks: isize,
     min: Option<Rc<Node<T>>>,
 }
 
@@ -16,13 +14,24 @@ pub struct InputData<T> {
 }
 
 impl<T> Heap<T> {
-    pub fn new() -> Self {
-        Heap {
-            n: 0,
-            trees: 0,
-            marks: 0,
-            min: None,
+    // TODO
+    pub fn set_n(&mut self, n: isize) {
+        self.n = n;
+    }
+
+    pub fn construct(input: Vec<InputData<T>>) -> Self {
+        let mut heap = Self::new();
+        for x in input {
+            let node = Node::new(x.key, x.value, x.is_marked);
+            node.construct_child(x.children);
+            heap.insert_node(node);
         }
+
+        return heap;
+    }
+
+    pub fn new() -> Self {
+        Heap { n: 0, min: None }
     }
 
     pub fn get_min(&self) -> Option<Rc<Node<T>>> {
@@ -33,9 +42,10 @@ impl<T> Heap<T> {
         }
     }
 
-    pub fn insert(&mut self, key: isize, value: T) {
-        let node = Node::new(key, value);
+    pub fn insert(&mut self, key: isize, value: T, is_marked: bool) {
+        let node = Node::new(key, value, is_marked);
         self.insert_node(Rc::clone(&node));
+        self.n += 1;
     }
 
     pub fn insert_node(&mut self, node: Rc<Node<T>>) {
@@ -50,7 +60,6 @@ impl<T> Heap<T> {
             }
             None => Some(node),
         };
-        self.n += 1;
     }
     pub fn minimum(&self) -> isize {
         *self.get_min().unwrap().key.borrow()
@@ -123,6 +132,7 @@ impl<T> Heap<T> {
                     }
                     */
                 }
+                x.remove();
                 A[d] = Some(Rc::clone(&x));
             }
         }
@@ -147,11 +157,44 @@ impl<T> Heap<T> {
         x.add_child(Rc::clone(&y));
         y.unmark();
     }
+
+    pub fn decrease_key(&mut self, x: Rc<Node<T>>, k: isize) {
+        if k > x.get_key() {
+            panic!("新しいキーは現在のキーより大きい");
+        }
+        x.set_key(k);
+        if let Some(y) = x.get_parent() {
+            if x.get_key() < y.get_key() {
+                self.cut(Rc::clone(&x), Rc::clone(&y));
+                self.cascading_cut(Rc::clone(&y));
+            }
+        }
+        if x.get_key() < self.get_min().unwrap().get_key() {
+            self.min = Some(Rc::clone(&x));
+        }
+    }
+
+    fn cut(&mut self, x: Rc<Node<T>>, y: Rc<Node<T>>) {
+        x.remove();
+        y.decrement_degree();
+        self.insert_node(Rc::clone(&x));
+        x.clear_parent();
+        x.unmark();
+    }
+
+    fn cascading_cut(&mut self, y: Rc<Node<T>>) {
+        if let Some(z) = y.get_parent() {
+            if y.is_marked() == false {
+                y.mark();
+            } else {
+                self.cut(Rc::clone(&y), Rc::clone(&z));
+                self.cascading_cut(Rc::clone(&z));
+            }
+        }
+    }
+
     pub fn print(&self) {
-        println!(
-            "(TODO)n={}, marks={}, trees={}",
-            self.n, self.marks, self.trees
-        );
+        println!("n={}", self.n);
         if let Some(min) = self.get_min() {
             for node in NodeIterator::new(min) {
                 node.print(0);
@@ -174,7 +217,15 @@ pub struct Node<T> {
 }
 
 impl<T> Node<T> {
-    pub fn new(key: isize, value: T) -> Rc<Self> {
+    pub fn construct_child(&self, input: Vec<InputData<T>>) {
+        for x in input {
+            let node = Node::new(x.key, x.value, x.is_marked);
+            node.construct_child(x.children);
+            self.add_child(node);
+        }
+    }
+
+    pub fn new(key: isize, value: T, is_marked: bool) -> Rc<Self> {
         let node = Rc::new(Node {
             key: RefCell::new(key),
             value: value,
@@ -183,7 +234,7 @@ impl<T> Node<T> {
             right: RefCell::new(None),
             left: RefCell::new(None),
             degree: RefCell::new(0),
-            is_marked: RefCell::new(false),
+            is_marked: RefCell::new(is_marked),
         });
 
         node.set_right(Rc::clone(&node));
@@ -234,7 +285,7 @@ impl<T> Node<T> {
         *self.degree.borrow_mut() += 1;
     }
 
-    fn decrement_rank(&self) {
+    fn decrement_degree(&self) {
         *self.degree.borrow_mut() -= 1;
     }
 
@@ -394,6 +445,7 @@ pub struct NodeIterator<T> {
     first: Rc<Node<T>>,
     current: Option<Rc<Node<T>>>,
     first_seen: bool,
+    last_seen: bool,
 }
 
 impl<T> NodeIterator<T> {
@@ -402,6 +454,7 @@ impl<T> NodeIterator<T> {
             first: Rc::clone(&node),
             current: Some(Rc::clone(&node)),
             first_seen: false,
+            last_seen: false,
         }
     }
 }
@@ -416,11 +469,17 @@ impl<T> Iterator for NodeIterator<T> {
             return None;
         } else if Rc::ptr_eq(&current, &self.first) {
             self.first_seen = true;
-        } else if Rc::ptr_eq(&current, &current.get_right().unwrap()) && self.first_seen {
-            return None;
+        } else if Rc::ptr_eq(&current, &current.get_right().unwrap()) {
+            // イテレータを回しながら兄弟を削除するとfirst_seenが消されて無限ループに陥ることがある
+            // 根リスト、子リストに一つのノードしか存在しない時、一回だけ返して終了させる
+            if self.last_seen {
+                return None;
+            } else {
+                self.last_seen = true;
+            }
         }
 
-        self.current = current.get_left();
+        self.current = current.get_right();
 
         Some(current)
     }
