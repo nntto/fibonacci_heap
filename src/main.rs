@@ -3,6 +3,7 @@ use std::cell::{Ref, RefCell};
 use std::rc::{Rc, Weak};
 
 fn main() {
+    // 初期化
     let mut heap = fibonacci_heap::Heap::new();
 
     heap.insert(23, 1, false);
@@ -19,9 +20,9 @@ fn main() {
     );
     heap.insert_node(node3);
 
-    heap.insert_node(
-        fibonacci_heap::Node::new(17, 1, false).add_child(fibonacci_heap::Node::new(30, 1, false)),
-    );
+    let node30 = fibonacci_heap::Node::new(30, 1, false);
+    let node17 = fibonacci_heap::Node::new(17, 1, false).add_child(Rc::clone(&node30));
+    heap.insert_node(Rc::clone(&node17));
     let node24 = fibonacci_heap::Node::new(24, 0, false);
     let node46 = fibonacci_heap::Node::new(46, 1, false);
     let node35 = fibonacci_heap::Node::new(35, 1, false);
@@ -29,6 +30,7 @@ fn main() {
     node24.add_child(fibonacci_heap::Node::new(26, 1, true).add_child(Rc::clone(&node35)));
     heap.insert_node(node24);
     heap.set_n(15);
+    // 初期化ここまで
 
     println!("initial state");
     heap.print();
@@ -42,6 +44,14 @@ fn main() {
 
     println!("decrease_key 35 to 5");
     heap.decrease_key(Rc::clone(&node35), 5);
+    heap.print();
+
+    println!("delete 17");
+    heap.delete(Rc::clone(&node17));
+    heap.print();
+
+    println!("delete 30");
+    heap.delete(Rc::clone(&node30));
     heap.print();
 }
 #[cfg(test)]

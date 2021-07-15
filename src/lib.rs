@@ -193,6 +193,11 @@ impl<T> Heap<T> {
         }
     }
 
+    pub fn delete(&mut self, x: Rc<Node<T>>) {
+        self.decrease_key(x, isize::MIN);
+        self.extract_min();
+    }
+
     pub fn print(&self) {
         println!("n={}", self.n);
         if let Some(min) = self.get_min() {
